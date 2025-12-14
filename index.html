@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>キャンパス画像ビューア（ランダム提示＋無人画像）</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 20px; }
+    #image-container { margin-top: 20px; }
+    img { max-width: 90vw; max-height: 80vh; }
+    #info { margin-top: 10px; font-weight: bold; }
+    select, button { font-size: 16px; padding: 5px 10px; margin: 5px; }
+  </style>
+</head>
+<body>
+<script>
+  (function () {
+    const pass = prompt("パスワードを入力してください：");
+    const correct = "hongosd2025"; // ←ここを好きな文字列に変えてOK
+
+    if (pass !== correct) {
+      document.body.innerHTML = "<p>アクセスが許可されていません。</p>";
+    }
+  })();
+</script>
+
+<h2>キャンパス画像ビューア（ランダム提示＋無人画像）</h2>
+
+<p>
+  まず、提示画像セットを選んで「開始」を押してください。<br>
+  選んだセットの6画像（空間評価1〜6）がランダム順で表示されたあと、<br>
+  医学部前広場 → 銀杏並木 → 工学部前広場 の順で無人画像（空間イメージ1〜3）が表示されます。<br>
+  各画像が表示されるたびに、画面下の「画像ID」をGoogleフォームで選択してください。
+</p>
+
+<label for="patternSelect">提示画像セット：</label>
+<select id="patternSelect">
+  <option value="A">パターンA</option>
+  <option value="B">パターンB</option>
+  <option value="C">パターンC</option>
+  <option value="D">パターンD</option>
+  <option value="E">パターンE</option>
+</select>
+<button id="startBtn">開始</button>
+<button id="nextBtn" disabled>次へ</button>
+
+<div id="image-container">
+  <p>まだ画像は表示されていません。</p>
+</div>
+
+<div id="info"></div>
+
+<script>
+// ==== 画像ファイル名（.png） ====
+// キーは内部用ID（広場_パターン）、値がファイル名。
+const IMAGES = {
+  "工_無人":   "kou_mujin.png",
+  "工_子供":   "kou_kodomo.png",
+  "工_観光":   "kou_kankou.png",
+  "工_学校":   "kou_gakkou.png",
+  "工_地域":   "kou_chiiki.png",
+
+  "医_無人":   "igaku_mujin.png",
+  "医_子供":   "igaku_kodomo.png",
+  "医_観光":   "igaku_kankou.png",
+  "医_学校":   "igaku_gakkou.png",
+  "医_地域":   "igaku_chiiki.png",
+
+  "銀_無人":   "ichyou_mujin.png",
+  "銀_子供":   "ichyou_kodomo.png",
+  "銀_観光":   "ichyou_kankou.png",
+  "銀_学校":   "ichyou_gakkou.png",
+  "銀_地域":   "ichyou_chiiki.png"
+};
+
+// ==== 外部に見せる画像ID（S01〜S15） ====
+const DISPLAY_IDS = {
+  // 工学部前広場
+  "工_観光": "S03",   // kou_kankou.png
+  "工_無人": "S05",   // kou_mujin.png
+  "工_地域": "S08",   // kou_chiiki.png
+  "工_学校": "S11",   // kou_gakkou.png
+  "工_子供": "S14",   // kou_kodomo.png
+
+  // 医学部前広場
+  "医_子供": "S01",   // igaku_kodomo.png
+  "医_地域": "S04",   // igaku_chiiki.png
+  "医_学校": "S06",   // igaku_gakkou.png
+  "医_無人": "S07",   // igaku_mujin.png
+  "医_観光": "S13",   // igaku_kankou.png
+
+  // 銀杏並木
+  "銀_無人": "S02",   // ichyou_mujin.png
+  "銀_子供": "S09",   // ichyou_kodomo.png
+  "銀_学校": "S10",   // ichyou_gakkou.png
+  "銀_地域": "S12",   // ichyou_chiiki.png
+  "銀_観光": "S15"    // ichyou_kankou.png
+};
+
+// ==== 提示画像セット（ランダムで出す6枚） ====
+const PATTERNS = {
+  "A": ["工_子供", "工_観光", "医_無人", "医_学校", "銀_子供", "銀_地域"],
+  "B": ["工_子供", "工_地域", "医_学校", "医_観光", "銀_無人", "銀_観光"],
+  "C": ["工_無人", "工_地域", "医_地域", "医_観光", "銀_学校", "銀_子供"],
+  "D": ["工_無人", "工_学校", "医_無人", "医_子供", "銀_地域", "銀_観光"],
+  "E": ["工_観光", "工_学校", "医_地域", "医_子供", "銀_無人", "銀_学校"]
+};
+
+// ==== 無人画像3枚（固定順） ====
+// 医学部前広場 → 銀杏並木 → 工学部前広場
+const BASELINE_SEQUENCE = ["医_無人", "銀_無人", "工_無人"];
+
+// ==== ランダムシャッフル ====
+function shuffle(array) {
+  const arr = array.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+let currentList = [];
+let currentIndex = -1;
+let phase = "pattern";      // "pattern" or "baseline"
+let currentPattern = null;  // A〜E
+
+const patternSelect = document.getElementById('patternSelect');
+const startBtn = document.getElementById('startBtn');
+const nextBtn = document.getElementById('nextBtn');
+const imageContainer = document.getElementById('image-container');
+const info = document.getElementById('info');
+
+startBtn.addEventListener('click', () => {
+  currentPattern = patternSelect.value;
+  const ids = PATTERNS[currentPattern];
+  currentList = shuffle(ids); // 6枚をランダム順に
+  currentIndex = 0;
+  phase = "pattern";
+  showCurrentImage();
+  nextBtn.disabled = false;
+});
+
+nextBtn.addEventListener('click', () => {
+  if (phase === "pattern") {
+    if (currentIndex < currentList.length - 1) {
+      currentIndex++;
+      showCurrentImage();
+    } else {
+      // 6枚終了 → 無人3枚へ
+      phase = "baseline";
+      currentList = BASELINE_SEQUENCE.slice(); // 固定順
+      currentIndex = 0;
+      showCurrentImage();
+    }
+  } else if (phase === "baseline") {
+    if (currentIndex < currentList.length - 1) {
+      currentIndex++;
+      showCurrentImage();
+    } else {
+      imageContainer.innerHTML = "<p>すべての画像提示が終了しました。ありがとうございました。</p>";
+      info.textContent = "";
+      nextBtn.disabled = true;
+    }
+  }
+});
+
+function showCurrentImage() {
+  const internalId = currentList[currentIndex];    // 例: "工_子供"
+  const filename   = IMAGES[internalId];
+  const displayId  = DISPLAY_IDS[internalId];      // 例: "S14"
+
+  imageContainer.innerHTML = `<img src="${filename}" alt="${displayId}">`;
+
+  if (phase === "pattern") {
+    const n = currentIndex + 1; // 1〜6
+    info.textContent = `空間評価${n}（全6枚中） / 画像ID: ${displayId}`;
+  } else {
+    const n = currentIndex + 1; // 1〜3
+    info.textContent = `空間イメージ${n}（全3枚中） / 画像ID: ${displayId}`;
+  }
+}
+</script>
+
+</body>
+</html>
